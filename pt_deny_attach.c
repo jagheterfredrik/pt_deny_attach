@@ -47,6 +47,8 @@
  * http://packetstorm.foofus.com/papers/attack/osx1061sysent.txt
  */
 
+
+#define _VM_KERNEL_SLIDE      0xffffff80008c0b58  // Used to sanity check the slide
 #define _NSYSENT_OSX_10_8_2_  0xffffff8000839818
 #define _PTRACE_OSX_10_8_2_   0xffffff8000571b80  // Used for sanity checks
 #define _PRINTF_OSX_10_8_2_   0xffffff8000229090  // Used to calculate the KASLR slide
@@ -123,9 +125,25 @@ static struct sysent *find_sysent () {
  * but we can calculate it by getting the address of a known
  * function, e.g. printf, and then comparing that to the
  * address returned by nm -g /mach_kernel
+ * 
+ * We can then use the calculated slide to read the value of
+ * the vm_kernel_slide variable to see if they match
  */
 static vm_offset_t calculate_vm_kernel_slide(void) {
-    return (vm_offset_t)&printf - _PRINTF_OSX_10_8_2_;
+    vm_offset_t kernel_slide = (vm_offset_t)&printf - _PRINTF_OSX_10_8_2_;
+    
+    printf("[ptrace] Calculated KASLR kernel slide: 0x%lx\n", kernel_slide);
+    
+    vm_offset_t *actual_slide = (_VM_KERNEL_SLIDE + kernel_slide);
+    
+    printf("[ptrace] Stored KASLR kernel slide (based on calculated slide): 0x%lx\n", *actual_slide);
+    
+    if (*actual_slide == kernel_slide) {
+        printf("[ptrace] calculated KASLR slide matches stored slide\n");
+        return kernel_slide;
+    }
+    
+    return 0;
 }
 
 kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
@@ -149,10 +167,6 @@ kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
     
     // _sysent[SYS_ptrace].sy_call = (sy_call_t *) our_ptrace;
 
-    void *kas_info = _sysent[439].sy_call;
-    
-    printf("kas_info == %p\n", kas_info);
-	
     printf("[ptrace] Patching ptrace(PT_DENY_ATTACH, ...).\n");
     return KERN_SUCCESS;
 }
