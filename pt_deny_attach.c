@@ -30,7 +30,24 @@
 #include <stdint.h>
 #include "structures.h"
 
-/* These values are for OSX 10.8.2.  The exact _nsysent offset can be found
+// Allow the CPU to write to read-only pages by clearing the WP flag in the Control Register CR0
+#define DISABLE_WRITE_PROTECTION()  asm volatile (                                  \
+                                            "cli\n"                                 \
+                                            "mov    %cr0,%rax\n"                    \
+                                            "and    $0xfffffffffffeffff,%rax\n"     \
+                                            "mov    %rax,%cr0"                      \
+                                    )
+// Re-enable the write protection by re-enabling the WP flag in the Control Register CR0
+#define ENABLE_WRITE_PROTECTION()   asm volatile (                                  \
+                                            "mov    %cr0,%rax\n"                    \
+                                            "or     $0x10000,%rax\n"                \
+                                            "mov    %rax,%cr0\n"                    \
+                                            "sti"                                   \
+                                    )
+
+
+
+/* These values are for OSX 10.8.3.  The exact _nsysent offset can be found
  * via:
  *
  *   nm -g /mach_kernel | grep _nsysent
@@ -49,9 +66,9 @@
 
 
 #define _VM_KERNEL_SLIDE      0xffffff80008c0b58  // Used to sanity check the slide
-#define _NSYSENT_OSX_10_8_2_  0xffffff8000839818
-#define _PTRACE_OSX_10_8_2_   0xffffff8000571b80  // Used for sanity checks
-#define _PRINTF_OSX_10_8_2_   0xffffff8000229090  // Used to calculate the KASLR slide
+#define _NSYSENT_OSX_10_8_3_  0xffffff8000839818
+#define _PTRACE_OSX_10_8_3_   0xffffff8000570990  // Used for sanity checks
+#define _PRINTF_OSX_10_8_3_   0xffffff8000229090  // Used to calculate the KASLR slide
 
 
 /*
@@ -77,6 +94,7 @@ static int our_ptrace (struct proc *p, struct ptrace_args *uap, int *retval)
 		printf("[ptrace] Blocking PT_DENY_ATTACH for pid %d.\n", uap->pid);
 		return (0);
 	} else {
+        printf("[ptrace] Forwarding call to original ptrace for pid %d.\n", uap->pid);
 		return real_ptrace(p, uap, retval);
 	}
 }
@@ -110,7 +128,7 @@ static struct sysent *find_sysent () {
         table[SYS_read].sy_narg == 3 &&
         table[SYS_wait4].sy_narg == 4 &&
         table[SYS_ptrace].sy_narg == 4 &&
-        table[SYS_ptrace].sy_call == (void *)(_PTRACE_OSX_10_8_2_ + slide))
+        table[SYS_ptrace].sy_call == (void *)(_PTRACE_OSX_10_8_3_ + slide))
     {
         printf("sysent sanity check succeeded.\n");
         return table;
@@ -130,7 +148,7 @@ static struct sysent *find_sysent () {
  * the vm_kernel_slide variable to see if they match
  */
 static vm_offset_t calculate_vm_kernel_slide(void) {
-    vm_offset_t kernel_slide = (vm_offset_t)&printf - _PRINTF_OSX_10_8_2_;
+    vm_offset_t kernel_slide = (vm_offset_t)&printf - _PRINTF_OSX_10_8_3_;
     
     printf("[ptrace] Calculated KASLR kernel slide: 0x%lx\n", kernel_slide);
     
@@ -146,12 +164,13 @@ static vm_offset_t calculate_vm_kernel_slide(void) {
     return 0;
 }
 
+
 kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
     
     slide = calculate_vm_kernel_slide();
     printf("[ptrace] KASLR kernel slide is 0x%lx\n", slide);
     
-    _nsysent = (int *)(_NSYSENT_OSX_10_8_2_ + slide);
+    _nsysent = (int *)(_NSYSENT_OSX_10_8_3_ + slide);
     
 	_sysent = find_sysent();
 	if (_sysent == NULL) {
@@ -160,23 +179,32 @@ kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
 
 	real_ptrace = (ptrace_func_t *) _sysent[SYS_ptrace].sy_call;
     
-    /*
-     * Attempting to update the sysent table on 10.8+ will cause a kernel panic
-     * presumably because sysent is on a read-only memory page
-     */
     
-    // _sysent[SYS_ptrace].sy_call = (sy_call_t *) our_ptrace;
-
     printf("[ptrace] Patching ptrace(PT_DENY_ATTACH, ...).\n");
+    
+    
+    DISABLE_WRITE_PROTECTION();
+    
+    _sysent[SYS_ptrace].sy_call = (sy_call_t *) our_ptrace;
+    
+    ENABLE_WRITE_PROTECTION();
+
+        
     return KERN_SUCCESS;
 }
 
 
 kern_return_t pt_deny_attach_stop (kmod_info_t * ki, void * d) {
+        
+    printf("[ptrace] Unpatching ptrace(PT_DENY_ATTACH, ...)\n");
+        
     
-    // Attempting to update the sysent table on 10.8+ will cause a kernel panic
-    // _sysent[SYS_ptrace].sy_call = (sy_call_t *) real_ptrace;
+    DISABLE_WRITE_PROTECTION();
     
-	printf("[ptrace] Unpatching ptrace(PT_DENY_ATTACH, ...)\n");
+    _sysent[SYS_ptrace].sy_call = (sy_call_t *) real_ptrace;
+
+    ENABLE_WRITE_PROTECTION();
+    
+    
     return KERN_SUCCESS;
 }
