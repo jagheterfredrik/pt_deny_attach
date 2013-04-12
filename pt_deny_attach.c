@@ -6,7 +6,6 @@
  * Updated for Snow Leopard and Lion: Dan Walters <https://github.com/dwalters/pt_deny_attach>
  *
  * Updated for Mountain Lion: Matthew Robinson <matt@zensunni.org>
- *   Doesn't actually work on Mountain Lion because of write protected memory
  *
  * This software is placed in the public domain
  *
