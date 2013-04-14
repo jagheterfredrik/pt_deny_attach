@@ -29,6 +29,11 @@
 #include <stdint.h>
 #include "structures.h"
 
+
+// The following header file can be generated
+// for each OS X version using get_addresses.sh
+#include "kernel_addresses.h"
+
 // Allow the CPU to write to read-only pages by clearing the WP flag in the Control Register CR0
 #define DISABLE_WRITE_PROTECTION()  asm volatile (                                  \
                                             "cli\n"                                 \
@@ -43,31 +48,6 @@
                                             "mov    %rax,%cr0\n"                    \
                                             "sti"                                   \
                                     )
-
-
-
-/* These values are for OSX 10.8.3.  The exact _nsysent offset can be found
- * via:
- *
- *   nm -g /mach_kernel | grep _nsysent
- *
- * The value for _printf can be found via:
- *
- *   nm -g /mach_kernel | grep _printf
- *
- * Be sure to get the address of _printf, not __printf!!!
- *
- * Due to a bug in the kext loading code, it's not currently possible
- * to link against com.apple.kernel to let the linker locate this.
- *
- * http://packetstorm.foofus.com/papers/attack/osx1061sysent.txt
- */
-
-
-#define _VM_KERNEL_SLIDE      0xffffff80008c0b58  // Used to sanity check the slide
-#define _NSYSENT_OSX_10_8_3_  0xffffff8000839818
-#define _PTRACE_OSX_10_8_3_   0xffffff8000570990  // Used for sanity checks
-#define _PRINTF_OSX_10_8_3_   0xffffff8000229090  // Used to calculate the KASLR slide
 
 
 /*
@@ -127,7 +107,7 @@ static struct sysent *find_sysent () {
         table[SYS_read].sy_narg == 3 &&
         table[SYS_wait4].sy_narg == 4 &&
         table[SYS_ptrace].sy_narg == 4 &&
-        table[SYS_ptrace].sy_call == (void *)(_PTRACE_OSX_10_8_3_ + slide))
+        table[SYS_ptrace].sy_call == (void *)(_PTRACE_ADDR + slide))
     {
         printf("sysent sanity check succeeded.\n");
         return table;
@@ -147,11 +127,11 @@ static struct sysent *find_sysent () {
  * the vm_kernel_slide variable to see if they match
  */
 static vm_offset_t calculate_vm_kernel_slide(void) {
-    vm_offset_t kernel_slide = (vm_offset_t)&printf - _PRINTF_OSX_10_8_3_;
+    vm_offset_t kernel_slide = (vm_offset_t)&printf - _PRINTF_ADDR;
     
     printf("[ptrace] Calculated KASLR kernel slide: 0x%lx\n", kernel_slide);
     
-    vm_offset_t *actual_slide = (_VM_KERNEL_SLIDE + kernel_slide);
+    vm_offset_t *actual_slide = (_VM_KERNEL_SLIDE_ADDR + kernel_slide);
     
     printf("[ptrace] Stored KASLR kernel slide (based on calculated slide): 0x%lx\n", *actual_slide);
     
@@ -166,10 +146,12 @@ static vm_offset_t calculate_vm_kernel_slide(void) {
 
 kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
     
+    printf("[ptrace] Using addresses from OS X %s\n", _OSX_VERSION);
+    
     slide = calculate_vm_kernel_slide();
     printf("[ptrace] KASLR kernel slide is 0x%lx\n", slide);
     
-    _nsysent = (int *)(_NSYSENT_OSX_10_8_3_ + slide);
+    _nsysent = (int *)(_NSYSENT_ADDR + slide);
     
 	_sysent = find_sysent();
 	if (_sysent == NULL) {
