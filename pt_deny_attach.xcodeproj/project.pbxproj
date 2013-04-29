@@ -11,6 +11,7 @@
 		32A4FEBE0562C75700D090E7 /* pt_deny_attach.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A224C3CFF42312311CA2CB7 /* pt_deny_attach.c */; settings = {ATTRIBUTES = (); }; };
 		A9CEB902113C3BFE00C761A6 /* structures.h in Headers */ = {isa = PBXBuildFile; fileRef = A9CEB901113C3BFE00C761A6 /* structures.h */; };
 		C997D157172B6EFA009238CE /* kernel_addresses.h in Headers */ = {isa = PBXBuildFile; fileRef = C997D156172B6EFA009238CE /* kernel_addresses.h */; };
+		C9C2B594172C08BF0085F207 /* get_addresses.sh in Resources */ = {isa = PBXBuildFile; fileRef = C9C2B593172C08BF0085F207 /* get_addresses.sh */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,7 @@
 		32A4FEC40562C75800D090E7 /* pt_deny_attach.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pt_deny_attach.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		A9CEB901113C3BFE00C761A6 /* structures.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = structures.h; sourceTree = "<group>"; };
 		C997D156172B6EFA009238CE /* kernel_addresses.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = kernel_addresses.h; sourceTree = "<group>"; };
+		C9C2B593172C08BF0085F207 /* get_addresses.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = get_addresses.sh; sourceTree = "<group>"; };
 		D27513B306A6225300ADB3A4 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = /System/Library/Frameworks/Kernel.framework; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
 
@@ -65,6 +67,7 @@
 		247142CAFF3F8F9811CA285C /* Source */ = {
 			isa = PBXGroup;
 			children = (
+				C9C2B593172C08BF0085F207 /* get_addresses.sh */,
 				C997D156172B6EFA009238CE /* kernel_addresses.h */,
 				A9CEB901113C3BFE00C761A6 /* structures.h */,
 				1A224C3CFF42312311CA2CB7 /* pt_deny_attach.c */,
@@ -137,6 +140,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				32A4FEBC0562C75700D090E7 /* InfoPlist.strings in Resources */,
+				C9C2B594172C08BF0085F207 /* get_addresses.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

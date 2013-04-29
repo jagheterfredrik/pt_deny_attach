@@ -28,4 +28,10 @@ echo "#define _PRINTF_ADDR          0x$PRINTF" >> kernel_addresses.h
 echo "#define _PTRACE_ADDR          0x$PTRACE" >> kernel_addresses.h
 
 echo "" >> kernel_addresses.h
+
+echo "//#define SCAN_RANGE 0x20000" >> kernel_addresses.h
+
+echo "" >> kernel_addresses.h
 echo "#endif" >> kernel_addresses.h
+
+less kernel_addresses.h
