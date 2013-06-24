@@ -1,6 +1,6 @@
 #!/bin/bash
 
-OSX_VERSION=`system_profiler | grep 'System Version' | awk '{print $5}'`
+OSX_VERSION=`sw_vers | grep 'ProductVersion:' | awk '{print $2}'`
 
 VM_KERNEL_SLIDE=`nm -g /mach_kernel | grep ' _vm_kernel_slide$' | awk '{print $1}'`
 NSYSENT=`nm -g /mach_kernel | grep ' _nsysent$' | awk '{print $1}'`
