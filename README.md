@@ -1,7 +1,7 @@
 pt_deny_attach Kernel Module for Mountain Lion 10.8.3
 ====
 
-**THIS NOW WORKS :-D !!!!**  It loads/unloads succesfully on 10.8.3 and successfully patches the `ptrace` call.
+**THIS NOW WORKS :-D !!!!**  It loads/unloads succesfully on 10.8.4 and successfully patches the `ptrace` call.
 
 This is a successful attempt to update the `pt_deny_attach` kernel module (originally by Landon J. Fuller) to work with Mountain Lion.
 
