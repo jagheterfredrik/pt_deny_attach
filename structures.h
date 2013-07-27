@@ -60,3 +60,26 @@ struct sysent {
 	int32_t		sy_return_type; /* return type */
 	uint16_t	sy_arg_bytes;	/* The size of all arguments for 32-bit system calls, in bytes */
 };
+
+struct descriptor_idt
+{
+    uint16_t offset_low;
+    uint16_t seg_selector;
+    uint8_t reserved;
+    uint8_t flag;
+    uint16_t offset_middle;
+    uint32_t offset_high;
+    uint32_t reserved2;
+};
+
+/* Borrowed from kernel source. It doesn't exist in Kernel.framework. */
+struct nlist_64 {
+    union {
+        uint32_t  n_strx;   /* index into the string table */
+    } n_un;
+    uint8_t n_type;         /* type flag, see below */
+    uint8_t n_sect;         /* section number or NO_SECT */
+    uint16_t n_desc;        /* see <mach-o/stab.h> */
+    uint64_t n_value;       /* value of this symbol (or stab offset) */
+};
+
