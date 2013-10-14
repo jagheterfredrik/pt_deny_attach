@@ -7,6 +7,8 @@
  *
  * Updated for Mountain Lion: Matthew Robinson <matt@zensunni.org>
  *
+ * Updated for Mavericks: Fredrik Gustafsson <frgustaf@kth.se>
+ *
  * Includes kernel symbol resolution code by Snare & rc0r
  * See https://github.com/rc0r/KernelResolver/blob/master/KernelResolver/KernelResolver.c
  *
@@ -46,43 +48,51 @@
 
 // Allow the CPU to write to read-only pages by clearing the WP flag in the Control Register CR0
 #define DISABLE_WRITE_PROTECTION()  asm volatile (                                  \
-                                            "cli\n"                                 \
-                                            "mov    %cr0,%rax\n"                    \
-                                            "and    $0xfffffffffffeffff,%rax\n"     \
-                                            "mov    %rax,%cr0"                      \
-                                    )
+"cli\n"                                 \
+"mov    %cr0,%rax\n"                    \
+"and    $0xfffffffffffeffff,%rax\n"     \
+"mov    %rax,%cr0"                      \
+)
 // Re-enable the write protection by re-enabling the WP flag in the Control Register CR0
 #define ENABLE_WRITE_PROTECTION()   asm volatile (                                  \
-                                            "mov    %cr0,%rax\n"                    \
-                                            "or     $0x10000,%rax\n"                \
-                                            "mov    %rax,%cr0\n"                    \
-                                            "sti"                                   \
-                                    )
+"mov    %cr0,%rax\n"                    \
+"or     $0x10000,%rax\n"                \
+"mov    %rax,%cr0\n"                    \
+"sti"                                   \
+)
 
 
 /*
- * The SYSENT_OFFSET can be discovered by searching memory around 
- * _nsysent for an address that passes the sanity check.
+ * The SYSENT_OFFSET can be discovered by searching memory
+ * for an address that passes the sanity check.
  *
- * If SCAN_RANGE is defined this will happen automatically and 
+ * If SCAN_RANGE is defined this will happen automatically and
  * the offset printed into the system log.
  */
-#define SYSENT_OFFSET       0x1C028
-//#define SCAN_RANGE        0x20000
+//#define SCAN_RANGE      0x20000
 
 static struct sysent *_sysent;
 
 typedef int	ptrace_func_t (struct proc *, struct ptrace_args *, int *);
 static ptrace_func_t *original_ptrace;
 
+uint64_t find_kernel_real_baseaddr();
+uint64_t find_sysent_from_disk(int64_t);
+
 struct segment_command_64 *find_segment_64(struct mach_header_64 *mh, const char *segname);
 struct section_64 *find_section_64(struct segment_command_64 *seg, const char *name);
 struct load_command *find_load_command(struct mach_header_64 *mh, uint32_t cmd);
 void *find_symbol(struct mach_header_64 *mh, const char *name);
 void *find_symbol_from_disk( vm_address_t slide, const char *name );
-uint64_t find_kernel_baseaddr( void );
+uint64_t find_kernel_vm_baseaddr( void );
 
-uint64_t KERNEL_MH_START_ADDR;
+uint64_t KERNEL_VM_START_ADDR;
+uint64_t KERNEL_REAL_START_ADDR;
+
+void *_exit_addr;
+void *_fork_addr;
+void *_read_addr;
+void *_ptrace_addr;
 
 static int our_ptrace (struct proc *p, struct ptrace_args *uap, int *retval)
 {
@@ -111,65 +121,54 @@ static struct sysent *locate_sysent(int *_nsysent, long offset) {
     /* Sanity check */
     if (table[SYS_syscall].sy_narg  == 0 &&
         table[SYS_exit].sy_narg     == 1 &&
-        table[SYS_exit].sy_call     == find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR, "_exit") &&
+        table[SYS_exit].sy_call     == _exit_addr &&
         table[SYS_fork].sy_narg     == 0 &&
-        table[SYS_fork].sy_call     == find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR, "_fork") &&
+        table[SYS_fork].sy_call     == _fork_addr &&
         table[SYS_read].sy_narg     == 3 &&
-        table[SYS_read].sy_call     == find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR, "_read") &&
+        table[SYS_read].sy_call     == _read_addr &&
         table[SYS_wait4].sy_narg    == 4 &&
         table[SYS_ptrace].sy_narg   == 4 &&
-        table[SYS_ptrace].sy_call   == find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR, "_ptrace")
-    ) {
+        table[SYS_ptrace].sy_call   == _ptrace_addr
+        ) {
         return table;
     }
     
     return NULL;
 }
 
-
-
 kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
-    long offset = SYSENT_OFFSET;
-    
-    if( find_kernel_baseaddr() != 0 ) {
-        printf( "[pt_deny_attach] Can't find KERNEL_MH_START_ADDR!\n" );
+    if( find_kernel_vm_baseaddr() != 0 ) {
+        printf( "[pt_deny_attach] Can't find KERNEL_VM_START_ADDR!\n" );
         return KERN_FAILURE;
     }
     
-    DLOG("[pt_deny_attach] KERNEL_MH_START_ADDR == 0x%llx\n", KERNEL_MH_START_ADDR);
+    if( find_kernel_real_baseaddr() != 0 ) {
+        printf( "[pt_deny_attach] Can't find KERNEL_REAL_START_ADDR!\n" );
+        return KERN_FAILURE;
+    }
     
-    int *_nsysent = (int *)find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR,
-                                       "_nsysent");
+    DLOG("[pt_deny_attach] KERNEL_VM_START_ADDR == 0x%llx\n", KERNEL_VM_START_ADDR);
+    DLOG("[pt_deny_attach] KERNEL_REAL_START_ADDR == 0x%llx\n", KERNEL_REAL_START_ADDR);
+    int64_t kernel_aslr_offset = KERNEL_VM_START_ADDR - KERNEL_REAL_START_ADDR;
+    DLOG("[pt_deny_attach] ASLR SLIDE == 0x%llx\n", kernel_aslr_offset);
     
-    DLOG("[pt_deny_attach] Found _nsysent at %p, with value %d\n", _nsysent, *_nsysent);
-
-	_sysent = locate_sysent(_nsysent, offset);
+    _exit_addr = find_symbol((struct mach_header_64 *)KERNEL_VM_START_ADDR, "_exit");
+    _fork_addr = find_symbol((struct mach_header_64 *)KERNEL_VM_START_ADDR, "_fork");
+    _read_addr = find_symbol((struct mach_header_64 *)KERNEL_VM_START_ADDR, "_read");
+    _ptrace_addr = find_symbol((struct mach_header_64 *)KERNEL_VM_START_ADDR, "_ptrace");
     
-#ifdef SCAN_RANGE
-    // If we don't find _sysent at the hard-coded offset
-    // search for it in memory around _nsysent
-    if (_sysent == NULL) {
-        printf("[pt_deny_attach] Attempting to locate _sysent in memory\n");
-        
-        for(offset = -SCAN_RANGE; offset < SCAN_RANGE && _sysent == NULL; offset++) {
-            _sysent = locate_sysent(slide, _nsysent, offset);
-        }
-	}
-#endif
-
+    uint64_t sysent_offset = find_sysent_from_disk(kernel_aslr_offset);
+    
+	_sysent = locate_sysent(KERNEL_VM_START_ADDR, sysent_offset);
+    
     if (_sysent == NULL) {
         printf("[pt_deny_attach] Unable to locate _sysent in memory\n");
         
         return KERN_FAILURE;
     }
     
-    printf("[pt_deny_attach] Found _sysent table at %p (offset 0x%lx from _nsysent)\n",
-           _sysent, (void *)_sysent - (void *)_nsysent);
-    
-    
-    DLOG("[pt_deny_attach] _sysent @ %p\n",
-         find_symbol((struct mach_header_64 *)KERNEL_MH_START_ADDR,
-                     "_sysent"));
+    printf("[pt_deny_attach] Found _sysent table at %p\n",
+           _sysent);
     
 	original_ptrace = (ptrace_func_t *) _sysent[SYS_ptrace].sy_call;
     
@@ -182,25 +181,204 @@ kern_return_t pt_deny_attach_start (kmod_info_t *ki, void *d) {
     _sysent[SYS_ptrace].sy_call = (sy_call_t *) our_ptrace;
     
     ENABLE_WRITE_PROTECTION();
-
-        
+    
+    
     return KERN_SUCCESS;
 }
 
 
 kern_return_t pt_deny_attach_stop (kmod_info_t * ki, void * d) {
-        
+    
     printf("[pt_deny_attach] Unpatching ptrace(PT_DENY_ATTACH, ...)\n");
-        
+    
     
     DISABLE_WRITE_PROTECTION();
     
     _sysent[SYS_ptrace].sy_call = (sy_call_t *) original_ptrace;
-
+    
     ENABLE_WRITE_PROTECTION();
     
     
     return KERN_SUCCESS;
+}
+
+
+#pragma mark - Sysent finder
+
+static struct sysent *find_sysent(unsigned char *buf, long offset, int64_t slide) {
+	struct sysent *table;
+    
+	table = (struct sysent *) (buf+offset);
+    
+    /* Sanity check */
+    if (table[SYS_syscall].sy_narg  == 0 &&
+        table[SYS_exit].sy_narg     == 1 &&
+        table[SYS_exit].sy_call     == _exit_addr - slide &&
+        table[SYS_fork].sy_narg     == 0 &&
+        table[SYS_fork].sy_call     == _fork_addr - slide &&
+        table[SYS_read].sy_narg     == 3 &&
+        table[SYS_read].sy_call     == _read_addr - slide &&
+        table[SYS_wait4].sy_narg    == 4 &&
+        table[SYS_ptrace].sy_narg   == 4 &&
+        table[SYS_ptrace].sy_call   == _ptrace_addr - slide
+        ) {
+        return table;
+    }
+    
+    return NULL;
+}
+
+uint64_t find_sysent_from_disk(int64_t slide)
+{
+    uint64_t i, j;
+    
+    vnode_t kernel_node = NULL;
+    vfs_context_t ctx = NULL;
+    
+    int error;
+    
+    // Buffer creation
+#define BUFSIZE ((1 * 1024 * 1024))
+    void *header_buffer = _MALLOC( BUFSIZE, M_TEMP, (M_ZERO|M_WAITOK) );
+    if (!header_buffer) {
+        DLOG( "[+] FAIL: malloc returned NULL\n");
+        return NULL;
+    }
+    
+    // VFS access
+    if( ( error = vnode_lookup( "/mach_kernel", 0, &kernel_node, NULL ) ) != 0 )
+    {
+        DLOG( "[+] FAIL: vnode_lookup\n" );
+        return NULL;
+    }
+    
+    
+    ctx = vfs_context_current();
+    
+    if( ( error = vnode_open( "/mach_kernel", O_RDONLY, 0, 0, &kernel_node, ctx ) ) )
+    {
+        DLOG( "[+] FAIL: vnode_open\n" );
+        return NULL;
+    }
+    
+    struct vnode_attr va;
+    VATTR_INIT(&va);
+    VATTR_WANTED(&va, va_data_size);
+    int kernel_size;
+    error = vnode_getattr(kernel_node, &va, ctx);
+    if (!error && VATTR_IS_SUPPORTED(&va, va_data_size)) {
+        kernel_size = va.va_data_size;
+    }
+    
+    uint64_t holdoff = (50 * sizeof(struct sysent));
+    
+    i=0;
+    while (1) {
+        uint64_t read_size = BUFSIZE;
+        if (i+read_size > kernel_size)
+            read_size = kernel_size - i;
+        uio_t uio = NULL;
+        
+        uio = uio_create( 1, 0, UIO_SYSSPACE, UIO_READ );
+        
+        uio_setoffset(uio, i);
+        if( ( error = uio_addiov( uio, CAST_USER_ADDR_T( header_buffer ), read_size ) ) )
+        {
+            DLOG( "[+] FAIL: uio_addiov\n" );
+            return NULL;
+        }
+        
+        if( ( error = VNOP_READ( kernel_node, uio, 0, ctx) ) )
+        {
+            DLOG( "[+] FAIL: VNOP_READ\n" );
+            return NULL;
+        }
+        
+        for (j=0; j<(read_size - holdoff); ++j) {
+            void *_sysent_temp = find_sysent(header_buffer, j, slide);
+            if (_sysent_temp != NULL) {
+                struct sysent *table = (struct sysent *)_sysent_temp;
+                long long diff = (long long)((long long)table[SYS_exit].sy_call-(long long)_exit_addr);
+                return i+j;
+            }
+        }
+        uio_free( uio );
+        
+        i+=read_size;
+        if (i >= kernel_size) {
+            break;
+        }
+        i-=holdoff;
+    }
+    _FREE( header_buffer, M_TEMP );
+    vnode_close( kernel_node, FREAD, ctx );
+    
+    return NULL;
+}
+
+uint64_t find_kernel_real_baseaddr ()
+{
+    struct segment_command_64 *flc = NULL;
+    vnode_t kernel_node = NULL;
+    vfs_context_t ctx = NULL;
+    
+    int error;
+    
+    // Buffer creation
+    char header_buffer[ PAGE_SIZE_64 ];
+    uio_t uio = NULL;
+    
+    uio = uio_create( 1, 0, UIO_SYSSPACE, UIO_READ );
+    
+    if( ( error = uio_addiov( uio, CAST_USER_ADDR_T( header_buffer ), PAGE_SIZE_64 ) ) )
+    {
+        DLOG( "[+] FAIL: uio_addiov\n" );
+        return -1;
+    }
+    
+    // VFS access
+    if( ( error = vnode_lookup( "/mach_kernel", 0, &kernel_node, NULL ) ) != 0 )
+    {
+        DLOG( "[+] FAIL: vnode_lookup\n" );
+        return -1;
+    }
+    
+    ctx = vfs_context_current();
+    
+    if( ( error = vnode_open( "/mach_kernel", O_RDONLY, 0, 0, &kernel_node, ctx ) ) )
+    {
+        DLOG( "[+] FAIL: vnode_open\n" );
+        return -1;
+    }
+    
+    if( ( error = VNOP_READ( kernel_node, uio, 0, ctx) ) )
+    {
+        DLOG( "[+] FAIL: VNOP_READ\n" );
+        return -1;
+    }
+    
+    struct mach_header_64 *mmh = (struct mach_header_64 *)((void *)header_buffer);
+    
+    /*
+     *  Check header
+     */
+    if( mmh->magic != MH_MAGIC_64 ) {
+        DLOG("FAIL: magic number doesn't match - 0x%x\n", mmh->magic);
+        return -1;
+    }
+    
+    flc = find_segment_64(mmh, SEG_TEXT);
+    if (!flc) {
+        DLOG("FAIL: couldn't find __TEXT\n");
+        return -1;
+    }
+    
+    KERNEL_REAL_START_ADDR = flc->vmaddr;
+    
+    uio_free( uio );
+    vnode_close( kernel_node, FREAD, ctx );
+    
+    return 0;
 }
 
 
@@ -501,7 +679,7 @@ find_symbol_from_disk( vm_offset_t slide, const char *name )
         return (addr + slide);
 }
 
-uint64_t find_kernel_baseaddr( )
+uint64_t find_kernel_vm_baseaddr( )
 {
     uint8_t idtr[ 10 ];
     uint64_t idt = 0;
@@ -529,7 +707,7 @@ uint64_t find_kernel_baseaddr( )
         bcopy( ( void * ) temp_address, temp_buffer, 4 );
         if ( *( uint32_t * )( temp_buffer ) == MH_MAGIC_64 )
         {
-            KERNEL_MH_START_ADDR = temp_address;
+            KERNEL_VM_START_ADDR = temp_address;
             return 0;
         }
         temp_address -= 1;

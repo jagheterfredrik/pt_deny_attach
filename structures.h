@@ -1,14 +1,14 @@
 /*
-* System call prototypes.
-*
-* Derived from FreeBSD's syscalls.master by Landon Fuller, original RCS IDs below:
-*
-* $FreeBSD: src/sys/sys/sysproto.h,v 1.216 2008/01/08 22:01:26 jhb Exp $
-* created from FreeBSD: src/sys/kern/syscalls.master,v 1.235 2008/01/08 21:58:15 jhb Exp 
-*/
+ * System call prototypes.
+ *
+ * Derived from FreeBSD's syscalls.master by Landon Fuller, original RCS IDs below:
+ *
+ * $FreeBSD: src/sys/sys/sysproto.h,v 1.216 2008/01/08 22:01:26 jhb Exp $
+ * created from FreeBSD: src/sys/kern/syscalls.master,v 1.235 2008/01/08 21:58:15 jhb Exp
+ */
 
 #define PAD_(t) (sizeof(uint64_t) <= sizeof(t) ? \
-                0 : sizeof(uint64_t) - sizeof(t))
+0 : sizeof(uint64_t) - sizeof(t))
 
 #if BYTE_ORDER == LITTLE_ENDIAN
 #define PADL_(t)        0
@@ -50,14 +50,13 @@ typedef int32_t	sy_call_t (struct proc *, void *, int *);
 typedef void	sy_munge_t (const void *, void *);
 
 /* Must match apple's structure, which differs significantly from FreeBSD's */
+/* Note: New Mavericks structure */
 struct sysent {
-	int16_t		sy_narg;		/* number of arguments */
-	int8_t		reserved;		/* unused value */
-	int8_t		sy_flags;		/* call flags */
 	sy_call_t	*sy_call;		/* implementing function */
 	sy_munge_t	*sy_arg_munge32;	/* munge system call arguments for 32-bit processes */
 	sy_munge_t	*sy_arg_munge64;	/* munge system call arguments for 64-bit processes */
 	int32_t		sy_return_type; /* return type */
+    int16_t		sy_narg;		/* number of arguments */
 	uint16_t	sy_arg_bytes;	/* The size of all arguments for 32-bit system calls, in bytes */
 };
 
